@@ -15,8 +15,8 @@ import copy
 
 
 s_image_name = "starry_night_full.jpg"
-c_image_name = "land.jpg"
-output_file_name = "landstarry.png"
+c_image_name = "city.jpg"
+output_file_name = "modernStarry.png"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 imsize = 512 if torch.cuda.is_available() else 128  # use small size if no gpu
