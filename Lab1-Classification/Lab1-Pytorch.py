@@ -169,7 +169,7 @@ def test_label_predictions(model, device, test_loader):
             data, target = data.to(device), target.to(device)
             #get output from model
             output = model(data)
-            # get the index of log-probability
+            # get the index of log-probability 
             prediction = output.argmax(dim=1, keepdim=True)
             actuals.extend(target.view_as(prediction))
             predictions.extend(prediction)
