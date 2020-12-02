@@ -1,9 +1,6 @@
  
 import os
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.utils import to_categorical
 import random
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,21 +13,19 @@ import torchvision.transforms as transforms
 torch.manual_seed(1618)
 random.seed(1618)
 np.random.seed(1618)
-#tf.set_random_seed(1618)   # Uncomment for TF1.
-tf.random.set_seed(1618)
+
  
-#tf.logging.set_verbosity(tf.logging.ERROR)   # Uncomment for TF1.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
  
 #ALGORITHM = "guesser"
-#ALGORITHM = "tf_net"
-ALGORITHM = "tf_conv"
+ALGORITHM = "tf_net"
+#ALGORITHM = "tf_conv"
  
 #DATASET = "mnist_d"
-#DATASET = "mnist_f"
+DATASET = "mnist_f"
 #DATASET = "cifar_10"
 #DATASET = "cifar_100_f"
-DATASET = "cifar_100_c"
+#DATASET = "cifar_100_c"
  
 if DATASET == "mnist_d":
     NUM_CLASSES = 10
@@ -73,19 +68,20 @@ def guesserClassifier(xTest):
         ans.append(pred)
     return np.array(ans)
  
-
+# Neural Net
 class NetTFNN(nn.Module):
   def __init__(self):
     super(NetTFNN, self).__init__()
     self.lay1 = nn.Linear(IS, IS)
     self.lay2 = nn.Linear(IS, NUM_CLASSES)
   def forward(self, x):
+    x = x.view(-1, 784)
     x = F.relu(self.lay1(x))
     x = F.sigmoid(self.lay2(x))
     return x
 
  
-# CNN PyTorch Ciar10
+# CNN PyTorch Cifar 10 and Cifar 100C
 import pdb
 class NetCifar10C(nn.Module):
     def __init__(self):
@@ -111,6 +107,7 @@ class NetCifar10C(nn.Module):
         x = F.softmax(self.fc3(x))
         return x
  
+# Build Net based on input
 def buildTorchNet(x, y, epochs = 10, dropout = True, dropRate = 0.3):
     if ALGORITHM == 'tf_net':
         net = NetTFNN()
@@ -120,38 +117,29 @@ def buildTorchNet(x, y, epochs = 10, dropout = True, dropRate = 0.3):
         net = NetCifar100F()
     else:
         net = NetMnist()
-    criterion = nn.CrossEntropyLoss()
-    opt = optim.SGD(net.parameters(), lr = 0.001)
+    criterion = nn.CrossEntropyLoss()  # Get loss function
+    opt = optim.SGD(net.parameters(), lr = 0.001) # Get optimizer
+    # Load in data
     trainLoader = torch.utils.data.DataLoader(x, batch_size=4, shuffle=True, num_workers=2)
     for epoch in range(500):
         lossTotal = 0.0
         for i, data in enumerate(trainLoader, 0):
-            inputs, labels = data
-            opt.zero_grad()
-            outputs = net(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            opt.step()
+            inputs, labels = data  # Get image and label
+            opt.zero_grad()  # Set optimzer 
+            outputs = net(inputs)  # Run neural net on inputs
+            loss = criterion(outputs, labels)  # calculate loss
+            loss.backward()  # Backward step for loss function
+            opt.step()  # Optimizer step
  
-            lossTotal += loss.item()
+            lossTotal += loss.item()  # Track loss
  
             if (i % 2000 == 1999):
                 print('[%d, %5d] loss: %.3f' % (epoch + 1, i + 1, lossTotal / 2000))
                 lossTotal = 0.0
     print("Testing TF_CNN.")
-#    testLoader = torch.utils.data.DataLoader(y, batch_size=4, shuffle=False, num_workers=2)
-#    total = 0
-#    correct = 0
-#    with torch.no_grad():
-#        for data in testLoader:
-#            images, labels = data
-#            outputs = net(images)
-#            _, predicted = torch.max(outputs.data, 1)
-#            total += labels.size(0)
-#            correct += (predicted == labels).sum().item()
-#    print('Accuracy: %d %%' % (100 * correct / total))
     return net
  
+# CNN for Cifar 100 F
 class NetCifar100F(nn.Module):
     def __init__(self):
         super(NetCifar100F, self).__init__()
@@ -175,7 +163,7 @@ class NetCifar100F(nn.Module):
         x = self.drop(x)
         x = F.softmax(self.fc3(x))
         return x
- 
+# CNN for MNIST
 class NetMnist(nn.Module):
     def __init__(self):
         super(NetMnist, self).__init__()
@@ -208,6 +196,7 @@ def buildTFConvNet(x, y = None, eps = 20, dropout = True, dropRate = 0.40):
  
 #=========================<Pipeline Functions>==================================
  
+# Get dataset and preprocess data
 def getRawData():
     if DATASET == "mnist_d":
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])

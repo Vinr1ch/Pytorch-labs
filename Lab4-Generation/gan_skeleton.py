@@ -6,13 +6,6 @@
  
 import os
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import Input, Dense, Reshape, Flatten, Dropout
-from tensorflow.keras.layers import BatchNormalization, LeakyReLU
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Conv2DTranspose, UpSampling2D
-from tensorflow.keras.optimizers import Adam
 #from scipy.misc import imsave
 import random
 from PIL import Image
@@ -26,26 +19,21 @@ import torchvision.transforms as transforms
 import torch.optim as optim
 import torchvision.datasets as datasets
 import imageio
-#import numpy as np
-#import matplotlib
 from torchvision.utils import make_grid, save_image
 from torch.utils.data import DataLoader
-#from matplotlib import pyplot as plt
 from tqdm import tqdm
  
 random.seed(1618)
 np.random.seed(1618)
-tf.compat.v1.set_random_seed(1618)
 torch.manual_seed(1618)
  
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
  
 # NOTE: mnist_d is no credit
 # NOTE: cifar_10 is extra credit
 #DATASET = "mnist_d"
 DATASET = "mnist_f"
-#DATASET = "cifar_10"
+#DATASET = "cifar_10" # Not Implemented in pipeline
  
 k = 1 # number of steps to apply to the discriminator
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -72,12 +60,7 @@ NOISE_SIZE = 100    # length of noise array
  
 # Ratio ex: if 1:2 ration of discriminator:generator, set adv_ratio = 2 and gen_ratio = 1
 # Implementation uses mod to determine if somthing gets trained. i.e. if adv_ratio is set to 2, it will train every other epoch
-USE_RATIO = 0
-adv_ratio = 2
-gen_ratio = 1
- 
-alpha_relu = 0.1
- 
+  
 gen_losses_plot = [[], []]
 adv_losses_plot = [[], []]
 #epochs_to_view_plot = 5000
@@ -91,23 +74,39 @@ VERBOSE_OUTPUT = False
  
 ################################### DATA FUNCTIONS ###################################
  
-# Load in and report the shape of dataset
+# Load in and pre-process the dataset
 def getRawData():
-    if DATASET == "mnist_f":
+    if DATASET == "mnist_d":
+        # Set up a transformation to pre-process that data
         transform = transforms.Compose([
                                 transforms.ToTensor(),
                                 transforms.Normalize((0.5,),(0.5,)),
         ])
+        # Get the MNIST dataset
         train_data = datasets.MNIST(root='./input/data', train=True, 
+            download=True, transform=transform
+        )
+        return train_data
+    if DATASET == "mnist_f":
+        # Set up a transformation to pre-process that data
+        transform = transforms.Compose([
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.5,),(0.5,)),
+        ])
+        # Get the MNIST Fashion dataset
+        train_data = datasets.FashionMNIST(root='./input/data', train=True, 
             download=True, transform=transform
         )
         return train_data
 
 ################################### CREATING A GAN ###################################
+
+# Generator class
 class Generator(nn.Module):
     def __init__(self, nz):
         super(Generator, self).__init__()
         self.nz = nz
+        # Sequential Adding of layers to CNN
         self.main = nn.Sequential(
             nn.Linear(self.nz, 256),
             nn.LeakyReLU(0.2),
@@ -119,12 +118,15 @@ class Generator(nn.Module):
             nn.Tanh(),
         )
     def forward(self, x):
+        # Execute the network and reshape the output
         return self.main(x).view(-1, 1, 28, 28)
  
+# Discriminator Class
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.n_input = 784
+        # Sequential Adding of layers to CNN
         self.main = nn.Sequential(
             nn.Linear(self.n_input, 1024),
             nn.LeakyReLU(0.2),
@@ -139,6 +141,7 @@ class Discriminator(nn.Module):
             nn.Sigmoid(),
         )
     def forward(self, x):
+        # Flatten and execute CNN
         x = x.view(-1, 784)
         return self.main(x)
  
@@ -165,59 +168,66 @@ def save_generator_image(image, path):
  
 # function to train the discriminator network
 def train_discriminator(optimizer, data_real, data_fake, discriminator, criterion):
-    b_size = data_real.size(0)
+    b_size = data_real.size(0)  # Batch size of real data
+    # Create real and fake labels
     real_label = label_real(b_size)
     fake_label = label_fake(b_size)
-    optimizer.zero_grad()
-    output_real = discriminator(data_real)
-    loss_real = criterion(output_real, real_label)
-    output_fake = discriminator(data_fake)
-    loss_fake = criterion(output_fake, fake_label)
-    loss_real.backward()
-    loss_fake.backward()
-    optimizer.step()
-    return loss_real + loss_fake
+    optimizer.zero_grad()  # Set optimizer for training
+    output_real = discriminator(data_real)  # Discriminator output for real data
+    loss_real = criterion(output_real, real_label)  # Loss for real output
+    output_fake = discriminator(data_fake)  # Discriminator output for fake data
+    loss_fake = criterion(output_fake, fake_label)  # Loss for fake output
+    loss_real.backward()  # Backward step for real loss function
+    loss_fake.backward()  # Backward step for fake loss function
+    optimizer.step()  # optimizer step
+    return loss_real + loss_fake  # return discriminator loss
  
  
 # function to train the generator network
 def train_generator(optimizer, data_fake, discriminator, criterion):
-    b_size = data_fake.size(0)
-    real_label = label_real(b_size)
-    optimizer.zero_grad()
-    output = discriminator(data_fake)
-    loss = criterion(output, real_label)
-    loss.backward()
-    optimizer.step()
-    return loss
+    b_size = data_fake.size(0)  # Batch size of data
+    real_label = label_real(b_size)  # Create real label
+    optimizer.zero_grad()  # Set optimizer for training
+    output = discriminator(data_fake)  # Dsicriminator output for fake data
+    loss = criterion(output, real_label)  # Get loss of generator
+    loss.backward()  # Backward step for loss function
+    optimizer.step()  # Optimizer step
+    return loss  # return generator loss
  
 def buildGAN(images, epochs = 40000, batchSize = 32, loggingInterval = 0):
+    # Load data for dataset
     train_loader = DataLoader(images, batch_size=batchSize, shuffle=True)
     nz = 128
+    # Create noise arrray
     noise = create_noise(64, 128)
-    generator = Generator(nz).to(device)
-    discriminator = Discriminator().to(device)
-    gen_opt = optim.Adam(generator.parameters(), lr=0.002)
-    dis_opt = optim.Adam(discriminator.parameters(), lr=0.002)
-    criterion = nn.BCELoss()
+    generator = Generator(nz).to(device)  # Get generator object
+    discriminator = Discriminator().to(device)  # Get discriminator object
+    gen_opt = optim.Adam(generator.parameters(), lr=0.002)  # Get Adam for generator optimizer
+    dis_opt = optim.Adam(discriminator.parameters(), lr=0.002)  # Get Adam for discriminator optimizer
+    criterion = nn.BCELoss()  # Use Binary Cross-Entropy loss function
     images = []
-    generator.train()
-    discriminator.train()
+    generator.train()  # Set generator to train
+    discriminator.train()  # Set discriminator to train
     for epoch in range(epochs):
         gen_loss = 0.0
         dis_loss = 0.0
         for i, data in tqdm(enumerate(train_loader), total=int(len(images)/train_loader.batch_size)):
-            img, _ = data
+            img, _ = data  # Get image
             img = img.to(device)
-            b_size = len(img)
+            b_size = len(img)  # Get number of images
+            # Used for training ratio based on k
             for step in range(k):
+                # Generate fake image and calculate discriminator loss
                 fake = generator(create_noise(b_size, nz)).detach()
                 real = img
                 dis_loss += train_discriminator(dis_opt, real, fake, discriminator, criterion)
+            # Get fake image and calculate generator loss
             fake = generator(create_noise(b_size, nz))
             gen_loss += train_generator(gen_opt, fake, discriminator, criterion)
+        # Generate an image at the end of the epoch and print loss for epoch
         gen_img = generator(noise).cpu().detach()
         gen_img = make_grid(gen_img)
-        save_generator_image(gen_img, f"./outputs/gen_img{epoch}.png")
+        save_generator_image(gen_img, f"./output/gen_img{epoch}.png")
         images.append(gen_img)
         gen_epoch_loss = gen_loss / i
         dis_epoch_loss = dis_loss / i
@@ -244,14 +254,14 @@ def runGAN(generator, outfile):
 def main():
     print("Starting %s image generator program." % LABEL)
     # Make output directory
-    if not os.path.exists(OUTPUT_DIR):
+    if not os.path.exists(OUTPUT_DIR):  # Unused DIR
         os.makedirs(OUTPUT_DIR)
     # Receive all of mnist_f
     raw = getRawData()
     # Filter for just the class we are trying to generate
     data = raw
     # Create and train all facets of the GAN
-    generator = buildGAN(data, epochs = 10000, batchSize = 32, loggingInterval = 500)
+    generator = buildGAN(data, epochs = 10000, batchSize = 512, loggingInterval = 500)
     # Utilize our spooky neural net gimmicks to create realistic counterfeit images
     for i in range(10):
         runGAN(generator, OUTPUT_DIR + "/" + OUTPUT_NAME + "_final_%d.png" % i)
